@@ -41,11 +41,11 @@ function getConfig(): OneNETConfig {
   const ONENET_API_BASE = process.env.ONENET_API_BASE || 'https://iot-api.heclouds.com';
   const ONENET_PRODUCT_ID = process.env.ONENET_PRODUCT_ID || '';
   const ONENET_DEVICE_NAME = process.env.ONENET_DEVICE_NAME || '';
-  const ONENET_ACCESS_KEY = process.env.ONENET_ACCESS_KEY || process.env.ONENET_DEVICE_KEY || '';  // 产品 accessKey
+  const ONENET_ACCESS_KEY = process.env.ONENET_ACCESS_KEY || '';  // 产品 accessKey
   const ONENET_TOKEN_METHOD = process.env.ONENET_TOKEN_METHOD || 'sha256';
 
   if (!ONENET_PRODUCT_ID || !ONENET_DEVICE_NAME || !ONENET_ACCESS_KEY) {
-    throw new Error('OneNET 环境配置不完整：缺少必填环境变量（ONENET_PRODUCT_ID, ONENET_DEVICE_NAME, ONENET_ACCESS_KEY 或 ONENET_DEVICE_KEY）');
+    throw new Error('OneNET 环境配置不完整：缺少必填环境变量（ONENET_PRODUCT_ID, ONENET_DEVICE_NAME, ONENET_ACCESS_KEY）');
   }
 
   return {
@@ -58,7 +58,7 @@ function getConfig(): OneNETConfig {
 }
 
 // 获取最新属性数据
-export async function getLatestProperties(): Promise<{ data: object | null; online: boolean; errorMsg?: string }> {
+export async function getLatestProperties(): Promise<{ data: object | null; online: boolean }> {
   try {
     const config = getConfig();
     const token = generateToken(config);
@@ -123,10 +123,10 @@ export async function getLatestProperties(): Promise<{ data: object | null; onli
     }
 
     console.log('[OneNET] 未知响应格式:', jsonData.code, jsonData.msg);
-    return { data: null, online: false, errorMsg: `OneNET API 返回错误: code=${jsonData.code}, msg=${jsonData.msg}` };
+    return { data: null, online: false };
   } catch (error: any) {
     console.error('[OneNET] 获取最新数据失败:', error.message);
-    return { data: null, online: false, errorMsg: `请求失败: ${error.message}` };
+    return { data: null, online: false };
   }
 }
 
