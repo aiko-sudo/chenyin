@@ -28,10 +28,10 @@
    编辑 `.env.local`，配置 OneNET 平台参数：
    
    ```env
-   ONENET_API_BASE=https://iot-api.heclouds.com/thingmodel
+   ONENET_API_BASE=https://iot-api.heclouds.com
    ONENET_PRODUCT_ID=cC223qEDV4
    ONENET_DEVICE_NAME=D001
-   ONENET_DEVICE_KEY=OVJrUXp4ejN1VnJNMTFwQW5BamFDVlhuVGhrRVpsV0Q=
+   ONENET_ACCESS_KEY=fZ/7z/GxfTv58d97sVG9ZYcvj7GhlYfNARX3DwmVO0s=
    ONENET_TOKEN_METHOD=sha256
    ```
 
@@ -197,12 +197,14 @@ ONENET_API_HISTORY_PATH=/your/custom/path
 3. **环境变量（Vercel 部署时）**
    
    ```
-   ONENET_API_BASE=https://iot-api.heclouds.com/thingmodel
+   ONENET_API_BASE=https://iot-api.heclouds.com
    ONENET_PRODUCT_ID=cC223qEDV4
    ONENET_DEVICE_NAME=D001
-   ONENET_DEVICE_KEY=OVJrUXp4ejN1VnJNMTFwQW5BamFDVlhuVGhrRVpsV0Q=
+   ONENET_ACCESS_KEY=fZ/7z/GxfTv58d97sVG9ZYcvj7GhlYfNARX3DwmVO0s=
    ONENET_TOKEN_METHOD=sha256
    ```
+   
+   > ⚠️ `ONENET_ACCESS_KEY` 是产品 accessKey，不是设备密钥。在 OneNET 控制台 → 产品概述 → 产品信息中获取。
 
 ## 🎨 视觉主题
 

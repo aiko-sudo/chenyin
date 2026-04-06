@@ -5,7 +5,7 @@ interface OneNETConfig {
   apiBase: string;
   productId: string;
   deviceName: string;
-  deviceKey: string;
+  accessKey: string;  // 产品 accessKey（非设备密钥）
   tokenMethod: string;
 }
 
@@ -15,56 +15,58 @@ const API_PATHS = {
   propertyHistory: process.env.ONENET_API_HISTORY_PATH || '/thingmodel/query-device-property-history'
 };
 
-// 生成鉴权 Token
-export function generateToken(config: OneNETConfig, expireSeconds: number = 3600): string {
+// 生成鉴权 Token（使用产品 accessKey，res 不含 /devices/）
+export function generateToken(config: OneNETConfig, expireSeconds: number = 86400): string {
   const et = Math.floor(Date.now() / 1000) + expireSeconds;
   const version = '2018-10-31';
-  const res = `products/${config.productId}/devices/${config.deviceName}`;
+  const res = `products/${config.productId}`;  // 产品级鉴权，不含 /devices/
   const method = config.tokenMethod;
   
-  // 签名格式：et\nmethod\nres\nversion（仅使用 res 的原始值）
+  // 签名格式：et\nmethod\nres\nversion
   const stringForSignature = `${et}\n${method}\n${res}\n${version}`;
-  const key = Buffer.from(config.deviceKey, 'base64');
+  const key = Buffer.from(config.accessKey, 'base64');
   const sign = crypto.createHmac(method as 'sha256' | 'md5' | 'sha1', key)
     .update(stringForSignature)
     .digest('base64');
   
-  // URL 编码 value 部分（/ → %2F, = → %3D）
+  // URL 编码
   const encodedRes = encodeURIComponent(res);
   const encodedSign = encodeURIComponent(sign);
   
-  // token 格式：version=xxx&res=xxx&et=xxx&method=xxx&sign=xxx
   return `version=${version}&res=${encodedRes}&et=${et}&method=${method}&sign=${encodedSign}`;
 }
 
 // 获取配置对象
 function getConfig(): OneNETConfig {
-  const ONENET_API_BASE = process.env.ONENET_API_BASE || 'https://iot-api.heclouds.com/thingmodel';
+  const ONENET_API_BASE = process.env.ONENET_API_BASE || 'https://iot-api.heclouds.com';
   const ONENET_PRODUCT_ID = process.env.ONENET_PRODUCT_ID || '';
   const ONENET_DEVICE_NAME = process.env.ONENET_DEVICE_NAME || '';
-  const ONENET_DEVICE_KEY = process.env.ONENET_DEVICE_KEY || '';
+  const ONENET_ACCESS_KEY = process.env.ONENET_ACCESS_KEY || process.env.ONENET_DEVICE_KEY || '';  // 产品 accessKey
   const ONENET_TOKEN_METHOD = process.env.ONENET_TOKEN_METHOD || 'sha256';
 
-  if (!ONENET_PRODUCT_ID || !ONENET_DEVICE_NAME || !ONENET_DEVICE_KEY) {
-    throw new Error('OneNET 环境配置不完整：缺少必填环境变量');
+  if (!ONENET_PRODUCT_ID || !ONENET_DEVICE_NAME || !ONENET_ACCESS_KEY) {
+    throw new Error('OneNET 环境配置不完整：缺少必填环境变量（ONENET_PRODUCT_ID, ONENET_DEVICE_NAME, ONENET_ACCESS_KEY 或 ONENET_DEVICE_KEY）');
   }
 
   return {
     apiBase: ONENET_API_BASE,
     productId: ONENET_PRODUCT_ID,
     deviceName: ONENET_DEVICE_NAME,
-    deviceKey: ONENET_DEVICE_KEY,
+    accessKey: ONENET_ACCESS_KEY,
     tokenMethod: ONENET_TOKEN_METHOD
   };
 }
 
 // 获取最新属性数据
-export async function getLatestProperties(): Promise<{ data: object | null; online: boolean }> {
+export async function getLatestProperties(): Promise<{ data: object | null; online: boolean; errorMsg?: string }> {
   try {
     const config = getConfig();
     const token = generateToken(config);
 
-    const apiUrl = `${config.apiBase}${API_PATHS.latestProperty}?product_id=${config.productId}&device_name=${config.deviceName}`;
+    const apiUrl = `${config.apiBase}${API_PATHS.latestProperty}?${new URLSearchParams({
+      product_id: config.productId,
+      device_name: config.deviceName
+    }).toString()}`;
 
     console.log('[OneNET] 请求最新数据:', apiUrl);
 
@@ -121,10 +123,10 @@ export async function getLatestProperties(): Promise<{ data: object | null; onli
     }
 
     console.log('[OneNET] 未知响应格式:', jsonData.code, jsonData.msg);
-    return { data: null, online: false };
+    return { data: null, online: false, errorMsg: `OneNET API 返回错误: code=${jsonData.code}, msg=${jsonData.msg}` };
   } catch (error: any) {
     console.error('[OneNET] 获取最新数据失败:', error.message);
-    return { data: null, online: false };
+    return { data: null, online: false, errorMsg: `请求失败: ${error.message}` };
   }
 }
 
@@ -138,7 +140,14 @@ export async function getPropertyHistory(
     const config = getConfig();
     const token = generateToken(config);
 
-    const apiUrl = `${config.apiBase}${API_PATHS.propertyHistory}?product_id=${config.productId}&device_name=${config.deviceName}&identifier=${identifier}&start_time=${startTime}&end_time=${endTime}`;
+    const apiUrl = `${config.apiBase}${API_PATHS.propertyHistory}?${new URLSearchParams({
+      product_id: config.productId,
+      device_name: config.deviceName,
+      identifier,
+      start_time: String(startTime),
+      end_time: String(endTime),
+      limit: '100'
+    }).toString()}`;
 
     console.log('[OneNET] 请求历史数据:', apiUrl);
 
@@ -159,17 +168,23 @@ export async function getPropertyHistory(
     console.log('[OneNET] 历史数据响应:', jsonData);
 
     // 提取历史记录
+    // OneNET 返回格式：{ code: 0, data: [{ time: 毫秒时间戳, value: 值 }, ...] }
     const records: HistoryRecord[] = [];
-    if (jsonData.data && jsonData.data.records) {
-      jsonData.data.records.forEach((record: any) => {
-        if (record.record) {
-          records.push({
-            time: new Date(record.record[0]).toISOString(),
-            value: record.record[1]?.value ?? 0
-          });
-        }
-      });
-    }
+    const rawList = Array.isArray(jsonData.data) ? jsonData.data
+      : jsonData.data?.list ? jsonData.data.list
+      : jsonData.data?.records ? jsonData.data.records.map((r: any) => ({ time: r.record?.[0] || r.time, value: r.record?.[1]?.value ?? r.value }))
+      : [];
+
+    rawList.forEach((item: any) => {
+      const ts = item.time;
+      const val = item.value;
+      if (ts !== undefined && val !== undefined) {
+        records.push({
+          time: new Date(ts).toISOString(),
+          value: parseFloat(val) || 0
+        });
+      }
+    });
 
     console.log('[OneNET] 解析后的记录数:', records.length);
     return records;

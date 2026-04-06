@@ -18,12 +18,12 @@ export async function GET() {
     }
 
     // 获取最新数据
-    const { data, online } = await getLatestProperties();
+    const { data, online, errorMsg } = await getLatestProperties();
 
     if (!data) {
       return NextResponse.json(
         {
-          error: '设备离线或无数据',
+          error: errorMsg || '设备离线或无数据',
           online: false,
           data: null
         },
