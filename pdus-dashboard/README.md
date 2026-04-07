@@ -31,6 +31,8 @@
    ONENET_API_BASE=https://iot-api.heclouds.com
    ONENET_PRODUCT_ID=cC223qEDV4
    ONENET_DEVICE_NAME=D001
+   # (可选) 多设备模式，如果有多个设备请使用逗号分隔，前端将开启设备切换选项卡
+   # ONENET_DEVICE_NAMES=D001,D002,D003
    ONENET_ACCESS_KEY=fZ/7z/GxfTv58d97sVG9ZYcvj7GhlYfNARX3DwmVO0s=
    ONENET_TOKEN_METHOD=sha256
    ```
@@ -99,6 +101,9 @@ pdus-dashboard/
 
 ### 3. 实时监测页面 (动态)
 
+- **多设备支持**
+  - 支持配置并在多台设备间一键切换（无缝状态刷新）
+  - 选中设备状态高亮展示
 - **实时数据展示**
   - 当前积尘度（0-100%）
   - 识别置信度（0-100%）
@@ -202,9 +207,10 @@ ONENET_API_HISTORY_PATH=/your/custom/path
    ONENET_DEVICE_NAME=D001
    ONENET_ACCESS_KEY=fZ/7z/GxfTv58d97sVG9ZYcvj7GhlYfNARX3DwmVO0s=
    ONENET_TOKEN_METHOD=sha256
+   # ONENET_DEVICE_NAMES=D001,D002 （如果要管理多台设备，可补充该项）
    ```
    
-   > ⚠️ `ONENET_ACCESS_KEY` 是产品 accessKey，不是设备密钥。在 OneNET 控制台 → 产品概述 → 产品信息中获取。
+   > ⚠️ `ONENET_ACCESS_KEY` 兼容产品级 accessKey 与设备级 DeviceKey。底层均采用设备级（`/devices/...`）鉴权算法进行向下自动兼容。
 
 ## 🎨 视觉主题
 
@@ -234,11 +240,10 @@ ONENET_API_HISTORY_PATH=/your/custom/path
    - 实际 OneNET API 路径可能需要根据固件版本调整
    - 建议先测试 API 连通性，再部署生产环境
 
-3. **数据缓存**
+3. **数据实效性与缓存防御**
    
-   - 最新数据缓存 30 秒
-   - 历史数据缓存 5 分钟
-   - 内存缓存基于 Node.js Map
+   - 前后端全局开启 `no-store` 和 `force-dynamic`，废弃所有 Next.js 构建级缓存以保证 OneNET 的更新能秒级同步
+   - 客户端最新数据自动重试刷新机制（默认 30 秒轮询）
 
 4. **安全性**
    

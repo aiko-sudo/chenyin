@@ -15,11 +15,11 @@ const API_PATHS = {
   propertyHistory: process.env.ONENET_API_HISTORY_PATH || '/thingmodel/query-device-property-history'
 };
 
-// 生成鉴权 Token（使用产品 accessKey，res 不含 /devices/）
+// 生成鉴权 Token（优先兼容设备级密钥）
 export function generateToken(config: OneNETConfig, expireSeconds: number = 86400): string {
   const et = Math.floor(Date.now() / 1000) + expireSeconds;
   const version = '2018-10-31';
-  const res = `products/${config.productId}`;  // 产品级鉴权，不含 /devices/
+  const res = `products/${config.productId}/devices/${config.deviceName}`;  // 设备级鉴权，兼容 DeviceKey 和 AccessKey
   const method = config.tokenMethod;
   
   // 签名格式：et\nmethod\nres\nversion
@@ -36,16 +36,29 @@ export function generateToken(config: OneNETConfig, expireSeconds: number = 8640
   return `version=${version}&res=${encodedRes}&et=${et}&method=${method}&sign=${encodedSign}`;
 }
 
+export function getAvailableDevices(): string[] {
+  const envNames = process.env.ONENET_DEVICE_NAMES;
+  if (envNames) {
+    return envNames.split(',').map(d => d.trim()).filter(Boolean);
+  }
+  const envName = process.env.ONENET_DEVICE_NAME;
+  if (envName) {
+    return [envName.trim()];
+  }
+  return [];
+}
+
 // 获取配置对象
-function getConfig(): OneNETConfig {
+function getConfig(targetDevice?: string): OneNETConfig {
   const ONENET_API_BASE = process.env.ONENET_API_BASE || 'https://iot-api.heclouds.com';
   const ONENET_PRODUCT_ID = process.env.ONENET_PRODUCT_ID || '';
-  const ONENET_DEVICE_NAME = process.env.ONENET_DEVICE_NAME || '';
+  const availableDevices = getAvailableDevices();
+  const ONENET_DEVICE_NAME = targetDevice || availableDevices[0] || '';
   const ONENET_ACCESS_KEY = process.env.ONENET_ACCESS_KEY || process.env.ONENET_DEVICE_KEY || '';  // 产品 accessKey
   const ONENET_TOKEN_METHOD = process.env.ONENET_TOKEN_METHOD || 'sha256';
 
   if (!ONENET_PRODUCT_ID || !ONENET_DEVICE_NAME || !ONENET_ACCESS_KEY) {
-    throw new Error('OneNET 环境配置不完整：缺少必填环境变量（ONENET_PRODUCT_ID, ONENET_DEVICE_NAME, ONENET_ACCESS_KEY 或 ONENET_DEVICE_KEY）');
+    throw new Error('OneNET 环境配置不完整：缺少必填环境变量（ONENET_PRODUCT_ID, ONENET_DEVICE_NAME 或 ONENET_DEVICE_NAMES, ONENET_ACCESS_KEY 或 ONENET_DEVICE_KEY）');
   }
 
   return {
@@ -58,9 +71,9 @@ function getConfig(): OneNETConfig {
 }
 
 // 获取最新属性数据
-export async function getLatestProperties(): Promise<{ data: object | null; online: boolean; errorMsg?: string }> {
+export async function getLatestProperties(targetDevice?: string): Promise<{ data: object | null; online: boolean; errorMsg?: string }> {
   try {
-    const config = getConfig();
+    const config = getConfig(targetDevice);
     const token = generateToken(config);
 
     const apiUrl = `${config.apiBase}${API_PATHS.latestProperty}?${new URLSearchParams({
@@ -134,10 +147,11 @@ export async function getLatestProperties(): Promise<{ data: object | null; onli
 export async function getPropertyHistory(
   identifier: string = 'survey_',
   startTime: number,
-  endTime: number
+  endTime: number,
+  targetDevice?: string
 ): Promise<HistoryRecord[]> {
   try {
-    const config = getConfig();
+    const config = getConfig(targetDevice);
     const token = generateToken(config);
 
     const apiUrl = `${config.apiBase}${API_PATHS.propertyHistory}?${new URLSearchParams({

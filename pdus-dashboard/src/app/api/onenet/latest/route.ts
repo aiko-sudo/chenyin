@@ -1,24 +1,28 @@
-import { NextResponse } from 'next/server';
+export const dynamic = 'force-dynamic';
+import { NextRequest, NextResponse } from 'next/server';
 import { getLatestProperties } from '@/lib/onenet';
 
 // 内存缓存（简单的 Map 实现）
 const cache = new Map<string, { data: any; timestamp: number }>();
 const CACHE_TTL = 30000; // 30 秒
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const cacheKey = 'latest_device_data';
+    const searchParams = request.nextUrl.searchParams;
+    const device = searchParams.get('device') || undefined;
+
+    const cacheKey = `latest_device_data_${device || 'default'}`;
     const cached = cache.get(cacheKey);
     const now = Date.now();
 
     // 检查缓存是否有效
     if (cached && now - cached.timestamp < CACHE_TTL) {
-      console.log('[API] 使用缓存数据');
+      console.log(`[API] 使用缓存数据 (${device || 'default'})`);
       return NextResponse.json(cached.data);
     }
 
     // 获取最新数据
-    const { data, online, errorMsg } = await getLatestProperties();
+    const { data, online, errorMsg } = await getLatestProperties(device);
 
     if (!data) {
       return NextResponse.json(

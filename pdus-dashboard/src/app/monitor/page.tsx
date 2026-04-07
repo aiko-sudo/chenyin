@@ -21,11 +21,32 @@ export default function MonitorPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState<string | null>(null);
+  const [devices, setDevices] = useState<string[]>([]);
+  const [activeDevice, setActiveDevice] = useState<string>('');
 
-  const fetchDeviceData = async () => {
+  useEffect(() => {
+    fetch('/api/onenet/devices', { cache: 'no-store' })
+      .then(res => res.json())
+      .then(data => {
+        if (data.devices && data.devices.length > 0) {
+          setDevices(data.devices);
+          setActiveDevice(data.devices[0]);
+        } else {
+          setDevices(['D001']);
+          setActiveDevice('D001');
+        }
+      })
+      .catch(() => {
+        setDevices(['D001']);
+        setActiveDevice('D001');
+      });
+  }, []);
+
+  const fetchDeviceData = async (device: string) => {
+    if (!device) return;
     try {
       setLoading(true);
-      const response = await fetch('/api/onenet/latest');
+      const response = await fetch(`/api/onenet/latest?device=${device}`, { cache: 'no-store' });
       const data = await response.json();
 
       if (data.error && !data.online) {
@@ -67,13 +88,15 @@ export default function MonitorPage() {
   };
 
   useEffect(() => {
-    fetchDeviceData();
+    if (!activeDevice) return;
+    
+    fetchDeviceData(activeDevice);
     
     // 每 30 秒自动刷新
-    const interval = setInterval(fetchDeviceData, 30000);
+    const interval = setInterval(() => fetchDeviceData(activeDevice), 30000);
     
     return () => clearInterval(interval);
-  }, []);
+  }, [activeDevice]);
 
   const currentLevel = deviceData ? getDustLevel(deviceData.survey) : DUST_LEVELS[0];
   const statusIcon = getDustStatusIcon(deviceData?.status || 'normal');
@@ -83,25 +106,52 @@ export default function MonitorPage() {
       
       {/* Header */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-8 gap-4">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-white mb-2">实时监测</h1>
             <p className="text-white/80">光伏板积尘状态监控</p>
           </div>
           
-          <div className="text-right">
-            <div className="text-white/60 text-sm">数据更新频率</div>
-            <div className="text-white font-semibold">30 秒自动刷新</div>
+          <div className="flex flex-col items-end gap-3 z-10 relative">
+            {/* Devices Tabs */}
+            {devices.length > 0 && (
+              <div className="flex bg-white/10 backdrop-blur-md p-1 rounded-lg">
+                {devices.map(dev => (
+                  <button
+                    key={dev}
+                    onClick={() => setActiveDevice(dev)}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-300 ${
+                      activeDevice === dev 
+                        ? 'bg-white text-purple-600 shadow-sm' 
+                        : 'text-white hover:bg-white/20'
+                    }`}
+                  >
+                    {dev}
+                  </button>
+                ))}
+              </div>
+            )}
+            
+            <div className="flex items-center justify-end gap-2 text-sm">
+              <span className="text-white/60">数据更新频率</span>
+              <span className="text-white font-semibold flex items-center gap-2 bg-white/10 px-2 py-0.5 rounded-full">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                </span>
+                30s
+              </span>
+            </div>
           </div>
         </div>
 
         {/* Device Info */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 mt-2">
           <DeviceCard 
-            title="设备信息"
-            deviceName="D001"
+            title="当前设备"
+            deviceName={activeDevice || '加载中...'}
             productId="cC223qEDV4"
-            icon="🌞"
+            icon="🔌"
           />
           <StatusBadge 
             online={deviceData?.online ?? false}

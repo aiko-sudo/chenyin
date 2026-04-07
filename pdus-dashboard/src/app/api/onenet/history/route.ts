@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { getPropertyHistory } from '@/lib/onenet';
 
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const identifier = searchParams.get('identifier') || 'survey_';
     const days = parseInt(searchParams.get('days') || '7');
+    const device = searchParams.get('device') || undefined;
     
     if (days < 1 || days > 365) {
       return NextResponse.json({ error: 'days 参数必须在 1-365 之间' }, { status: 400 });
@@ -26,12 +28,12 @@ export async function GET(request: NextRequest) {
     const endTime = now;
 
     // 生成缓存键
-    const cacheKey = `${identifier}_${days}`;
+    const cacheKey = `${identifier}_${days}_${device || 'default'}`;
     const cached = cache.get(cacheKey);
 
     // 检查缓存是否有效
     if (cached && now - cached.timestamp < CACHE_TTL) {
-      console.log('[API] 使用缓存历史数据');
+      console.log(`[API] 使用缓存历史数据 (${device || 'default'})`);
       return NextResponse.json({
         identifier,
         startTime: cached.startTime,
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest) {
     }
 
     // 获取历史数据
-    const records = await getPropertyHistory(identifier, startTime, endTime);
+    const records = await getPropertyHistory(identifier, startTime, endTime, device);
 
     // 按时间排序
     records.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
