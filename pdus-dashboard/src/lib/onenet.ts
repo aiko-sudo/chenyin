@@ -5,8 +5,9 @@ interface OneNETConfig {
   apiBase: string;
   productId: string;
   deviceName: string;
-  accessKey: string;  // 产品 accessKey（非设备密钥）
+  accessKey: string;
   tokenMethod: string;
+  keyType: 'device' | 'product';  // 标记密钥类型：device=DeviceKey, product=AccessKey
 }
 
 // OneNET API 接口路径模板（支持配置调整）
@@ -15,12 +16,19 @@ const API_PATHS = {
   propertyHistory: process.env.ONENET_API_HISTORY_PATH || '/thingmodel/query-device-property-history'
 };
 
-// 生成鉴权 Token（优先兼容设备级密钥）
+// 生成鉴权 Token（自动适配产品级 AccessKey 和设备级 DeviceKey）
 export function generateToken(config: OneNETConfig, expireSeconds: number = 86400): string {
   const et = Math.floor(Date.now() / 1000) + expireSeconds;
   const version = '2018-10-31';
-  const res = `products/${config.productId}/devices/${config.deviceName}`;  // 设备级鉴权，兼容 DeviceKey 和 AccessKey
-  const method = config.tokenMethod;
+
+  // 根据密钥类型选择 res 路径：
+  //   DeviceKey  → products/{pid}/devices/{dname}
+  //   AccessKey  → products/{pid}
+  const res = config.keyType === 'device'
+    ? `products/${config.productId}/devices/${config.deviceName}`
+    : `products/${config.productId}`;
+
+  const method = config.tokenMethod.toLowerCase();
   
   // 签名格式：et\nmethod\nres\nversion
   const stringForSignature = `${et}\n${method}\n${res}\n${version}`;
@@ -33,7 +41,11 @@ export function generateToken(config: OneNETConfig, expireSeconds: number = 8640
   const encodedRes = encodeURIComponent(res);
   const encodedSign = encodeURIComponent(sign);
   
-  return `version=${version}&res=${encodedRes}&et=${et}&method=${method}&sign=${encodedSign}`;
+  const token = `version=${version}&res=${encodedRes}&et=${et}&method=${method}&sign=${encodedSign}`;
+  
+  // 安全日志：仅记录关键结构信息
+  console.log(`[OneNET] Token 详情: version=${version}, method=${method}, expire_at=${new Date(et * 1000).toLocaleString()}, res=${res}`);
+  return token;
 }
 
 export function getAvailableDevices(): string[] {
@@ -54,19 +66,35 @@ function getConfig(targetDevice?: string): OneNETConfig {
   const ONENET_PRODUCT_ID = process.env.ONENET_PRODUCT_ID || '';
   const availableDevices = getAvailableDevices();
   const ONENET_DEVICE_NAME = targetDevice || availableDevices[0] || '';
-  const ONENET_ACCESS_KEY = process.env.ONENET_ACCESS_KEY || process.env.ONENET_DEVICE_KEY || '';  // 产品 accessKey
+  
+  // 环境变量优先级逻辑：
+  // 1. 如果有 ONENET_DEVICE_KEY，优先认定为设备级密钥
+  // 2. 如果只有 ONENET_ACCESS_KEY，判定为产品级密钥
+  // 提示：如果用户在 Vercel 将设备密钥填入了 ONENET_ACCESS_KEY 变量，可能导致鉴权 10403
+  let accessKey = '';
+  let keyType: 'device' | 'product' = 'product';
+
+  if (process.env.ONENET_DEVICE_KEY) {
+    accessKey = process.env.ONENET_DEVICE_KEY;
+    keyType = 'device';
+  } else if (process.env.ONENET_ACCESS_KEY) {
+    accessKey = process.env.ONENET_ACCESS_KEY;
+    keyType = 'product';
+  }
+
   const ONENET_TOKEN_METHOD = process.env.ONENET_TOKEN_METHOD || 'sha256';
 
-  if (!ONENET_PRODUCT_ID || !ONENET_DEVICE_NAME || !ONENET_ACCESS_KEY) {
-    throw new Error('OneNET 环境配置不完整：缺少必填环境变量（ONENET_PRODUCT_ID, ONENET_DEVICE_NAME 或 ONENET_DEVICE_NAMES, ONENET_ACCESS_KEY 或 ONENET_DEVICE_KEY）');
+  if (!ONENET_PRODUCT_ID || !ONENET_DEVICE_NAME || !accessKey) {
+    throw new Error('OneNET 环境配置不完整：缺少必填环境变量（ONENET_PRODUCT_ID, ONENET_DEVICE_NAME, 以及 ONENET_ACCESS_KEY 或 ONENET_DEVICE_KEY）');
   }
 
   return {
     apiBase: ONENET_API_BASE,
     productId: ONENET_PRODUCT_ID,
     deviceName: ONENET_DEVICE_NAME,
-    accessKey: ONENET_ACCESS_KEY,
-    tokenMethod: ONENET_TOKEN_METHOD
+    accessKey: accessKey,
+    tokenMethod: ONENET_TOKEN_METHOD,
+    keyType: keyType
   };
 }
 
