@@ -13,7 +13,8 @@ interface OneNETConfig {
 // OneNET API 接口路径模板（支持配置调整）
 const API_PATHS = {
   latestProperty: process.env.ONENET_API_LATEST_PATH || '/thingmodel/query-device-property',
-  propertyHistory: process.env.ONENET_API_HISTORY_PATH || '/thingmodel/query-device-property-history'
+  propertyHistory: process.env.ONENET_API_HISTORY_PATH || '/thingmodel/query-device-property-history',
+  deviceStatus: '/devices/status'
 };
 
 // 生成鉴权 Token（自动适配产品级 AccessKey 和设备级 DeviceKey）
@@ -55,6 +56,10 @@ export function getAvailableDevices(): string[] {
   }
   const envName = process.env.ONENET_DEVICE_NAME;
   if (envName) {
+    // 兼容处理：如果 ONENET_DEVICE_NAME 中包含逗号，也进行分割
+    if (envName.includes(',')) {
+      return envName.split(',').map(d => d.trim()).filter(Boolean);
+    }
     return [envName.trim()];
   }
   return [];
@@ -109,25 +114,58 @@ export async function getLatestProperties(targetDevice?: string): Promise<{ data
       device_name: config.deviceName
     }).toString()}`;
 
-    console.log('[OneNET] 请求最新数据:', apiUrl);
+    const statusUrl = `${config.apiBase}${API_PATHS.deviceStatus}?${new URLSearchParams({
+      product_id: config.productId,
+      device_names: config.deviceName // 注意：/devices/status 接口通常使用 device_names (复数)
+    }).toString()}`;
 
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Authorization': token,
-        'Content-Type': 'application/json'
-      }
-    });
+    console.log('[OneNET] 请求最新数据和状态:', apiUrl, statusUrl);
 
-    if (!response.ok) {
-      console.error('[OneNET] 请求失败:', response.status, response.statusText);
-      if (response.status === 401 || response.status === 403) {
+    // 并行请求数据和状态
+    const [propResponse, statusResponse] = await Promise.all([
+      fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json'
+        }
+      }),
+      fetch(statusUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': token,
+          'Content-Type': 'application/json'
+        }
+      })
+    ]);
+
+    if (!propResponse.ok || !statusResponse.ok) {
+      console.error('[OneNET] 请求失败:', 
+        !propResponse.ok ? `Prop: ${propResponse.status}` : '', 
+        !statusResponse.ok ? `Status: ${statusResponse.status}` : ''
+      );
+      if (propResponse.status === 401 || propResponse.status === 403 || statusResponse.status === 401 || statusResponse.status === 403) {
         throw new Error('鉴权失败：请检查设备密钥和 Token 生成算法');
       }
       return { data: null, online: false };
     }
 
-    const jsonData = await response.json();
+    const [jsonData, statusData] = await Promise.all([
+      propResponse.json(),
+      statusResponse.json()
+    ]);
+
+    // OneNET Studio /device/status 返回格式通常为 { code: 0, data: [{ status: 1, ... }] } 或 { code: 0, data: { status: 1 } }
+    let isOnline = false;
+    if (statusData.code === 0) {
+      if (Array.isArray(statusData.data) && statusData.data.length > 0) {
+        isOnline = statusData.data[0].status === 1;
+      } else if (statusData.data && typeof statusData.data.status !== 'undefined') {
+        isOnline = statusData.data.status === 1;
+      }
+    }
+
+    console.log(`[OneNET] 设备状态: ${isOnline ? '在线' : '离线'} (code=${statusData.code}, data=${JSON.stringify(statusData.data)})`);
     console.log('[OneNET] 最新数据响应:', JSON.stringify(jsonData).slice(0, 500));
 
     // 提取设备数据
@@ -144,9 +182,9 @@ export async function getLatestProperties(targetDevice?: string): Promise<{ data
         dust_: attrs['dust_']?.value || 'normal',
         BatteryVoltage: parseFloat(attrs['BatteryVoltage']?.value) || 0,
         timestamp: attrs['survey_']?.time || new Date().toISOString(),
-        online: true
+        online: isOnline
       };
-      return { data, online: true };
+      return { data, online: isOnline };
     }
 
     // 兼容旧格式 { data: { attributes: { ... } } }
@@ -158,9 +196,9 @@ export async function getLatestProperties(targetDevice?: string): Promise<{ data
         dust_: attrs.dust_?.value ?? 'normal',
         BatteryVoltage: attrs.BatteryVoltage?.value ?? 0,
         timestamp: jsonData.data.time?.toString() || new Date().toISOString(),
-        online: true
+        online: isOnline
       };
-      return { data, online: true };
+      return { data, online: isOnline };
     }
 
     console.log('[OneNET] 未知响应格式:', jsonData.code, jsonData.msg);
